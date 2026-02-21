@@ -1,0 +1,220 @@
+/* --- IMPORTANDO FONTE DE TERMINAL --- */
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+
+/* --- FUNDO E EFEITOS CRT (TELA ANTIGA) --- */
+body {
+    background-color: #020202;
+    color: #e0e0e0;
+    margin: 0;
+    padding: 0;
+    font-family: 'Share Tech Mono', 'Courier New', Courier, monospace;
+    transition: background-color 0.5s ease;
+    
+    /* Grade de Coordenadas de Fundo */
+    background-image: 
+        linear-gradient(rgba(0, 229, 255, 0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 229, 255, 0.05) 1px, transparent 1px);
+    background-size: 30px 30px;
+}
+
+/* Linha de Scanner passando na tela (Opcional, mas muito hacker) */
+body::after {
+    content: " ";
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: 0;
+    background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+    z-index: 999;
+    background-size: 100% 2px, 3px 100%;
+    pointer-events: none;
+}
+
+/* --- TELA DE LOGIN (ACESSO RESTRITO) --- */
+#tela-login {
+    max-width: 400px;
+    margin: 100px auto;
+    background-color: rgba(5, 5, 5, 0.9);
+    padding: 40px;
+    border: 2px solid #00e5ff;
+    box-shadow: 0 0 30px rgba(0, 229, 255, 0.15);
+    text-align: center;
+    position: relative;
+    z-index: 1000;
+}
+#tela-login::before {
+    content: "WARNING: RESTRICTED AREA";
+    color: #ff4c4c;
+    font-size: 12px;
+    letter-spacing: 2px;
+    display: block;
+    margin-bottom: 20px;
+    border-bottom: 1px dashed #ff4c4c;
+    padding-bottom: 5px;
+}
+#tela-login h2 { color: #00e5ff; margin-top: 0; text-transform: uppercase; letter-spacing: 2px; }
+#tela-login input { 
+    width: 90%; padding: 15px; margin-bottom: 20px; 
+    background-color: #000; color: #00e5ff; 
+    border: 1px solid #333; outline: none; 
+    font-family: inherit; font-size: 16px; text-align: center;
+    letter-spacing: 2px;
+}
+#tela-login input:focus { border-color: #00e5ff; box-shadow: inset 0 0 10px rgba(0, 229, 255, 0.2); }
+#tela-login button { 
+    width: 98%; padding: 15px; 
+    background-color: transparent; color: #00e5ff; 
+    border: 2px solid #00e5ff; cursor: pointer; 
+    font-weight: bold; text-transform: uppercase; letter-spacing: 2px;
+    transition: 0.2s; font-family: inherit;
+}
+#tela-login button:hover { background-color: #00e5ff; color: #000; box-shadow: 0 0 20px #00e5ff; }
+
+/* --- APP PRINCIPAL (O TERMINAL) --- */
+#app-container {
+    display: flex;
+    max-width: 1200px;
+    margin: 20px auto;
+    height: 90vh;
+    background-color: rgba(5, 5, 5, 0.95);
+    border: 1px solid #333;
+    box-shadow: 0 0 50px rgba(0,0,0,1);
+    position: relative;
+    z-index: 10;
+}
+
+/* --- BARRA LATERAL (BANCO DE DADOS) --- */
+#barra-lateral {
+    width: 30%;
+    min-width: 280px;
+    background-color: transparent;
+    border-right: 1px solid #222;
+    display: flex;
+    flex-direction: column;
+}
+#meu-perfil {
+    background-color: #0a0a0a;
+    padding: 20px;
+    border-bottom: 2px solid #00e5ff;
+    color: #fff;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+#nova-conversa {
+    display: flex;
+    padding: 15px;
+    background-color: #050505;
+    border-bottom: 1px solid #222;
+}
+#nova-conversa input { 
+    flex-grow: 1; padding: 10px; background-color: #000; 
+    color: #fff; border: 1px solid #333; outline: none; 
+    font-family: inherit; text-align: center;
+}
+#nova-conversa button { 
+    background-color: #111; color: #00e5ff; 
+    border: 1px solid #00e5ff; padding: 10px 15px; 
+    margin-left: 10px; cursor: pointer; transition: 0.2s;
+}
+#nova-conversa button:hover { background-color: #00e5ff; color: #000; }
+#lista-contatos-lateral { flex-grow: 1; overflow-y: auto; }
+.contato-item {
+    padding: 15px 20px;
+    border-bottom: 1px dashed #222;
+    cursor: pointer;
+    transition: 0.2s;
+    text-transform: uppercase;
+}
+.contato-item:hover { background-color: #111; border-left: 2px solid #555; }
+.contato-ativo { 
+    background-color: #0a0a0a; 
+    border-left: 4px solid #00e5ff !important; 
+    color: #00e5ff; 
+}
+
+/* --- CHAT PRINCIPAL (PAINEL DE DADOS) --- */
+#chat-principal {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    background-color: transparent;
+}
+#cabecalho-chat {
+    background-color: #0a0a0a;
+    padding: 20px;
+    font-weight: bold;
+    border-bottom: 1px solid #333;
+    color: #fff;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+#mensagens-chat {
+    flex-grow: 1;
+    padding: 25px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+/* --- MENSAGENS (ESTILO BLOCOS DE DADOS) --- */
+.mensagem {
+    background-color: rgba(20, 20, 20, 0.8);
+    color: #bbb;
+    padding: 15px;
+    border: 1px solid #333;
+    border-left: 3px solid #555;
+    margin-bottom: 15px;
+    max-width: 75%;
+    word-wrap: break-word;
+    align-self: flex-start;
+    box-shadow: 2px 2px 10px rgba(0,0,0,0.5);
+}
+.minha-mensagem {
+    background-color: rgba(0, 30, 40, 0.8);
+    color: #00e5ff;
+    align-self: flex-end;
+    border: 1px solid #004455;
+    border-left: 1px solid #004455;
+    border-right: 3px solid #00e5ff;
+}
+
+/* --- ÁREA DE COMANDO (INPUT) --- */
+#area-digitacao {
+    display: flex;
+    padding: 20px;
+    background-color: #050505;
+    border-top: 1px solid #222;
+}
+#nova-mensagem { 
+    flex-grow: 1; padding: 15px; background-color: #000; 
+    color: #00e5ff; border: 1px solid #333; outline: none; 
+    font-family: inherit; font-size: 15px;
+}
+#nova-mensagem:focus { border-color: #00e5ff; }
+#btn-enviar { 
+    background-color: transparent; color: #00e5ff; border: 1px solid #00e5ff; 
+    padding: 10px 25px; margin-left: 15px; cursor: pointer; 
+    font-weight: bold; font-family: inherit; text-transform: uppercase; letter-spacing: 1px;
+    transition: 0.2s;
+}
+#btn-enviar:hover { background-color: #00e5ff; color: #000; }
+
+/* --- BARRA DE ROLAGEM ESTILO TERMINAL --- */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: #050505; border-left: 1px solid #222; }
+::-webkit-scrollbar-thumb { background: #333; }
+::-webkit-scrollbar-thumb:hover { background: #00e5ff; }
+
+/* --- PAINEL SECRETO (MODO ESPIÃO) --- */
+#entrada-secreta { position: fixed; bottom: 0; right: 0; width: 20px; height: 20px; border: none; background-color: transparent; color: transparent; outline: none; z-index: 9999; }
+#painel-secreto { display: none; position: fixed; top: 5%; left: 5%; width: 90%; height: 90%; background-color: rgba(0, 0, 0, 0.98); color: #00ff00; border: 2px solid #00ff00; padding: 30px; box-sizing: border-box; font-family: 'Share Tech Mono', monospace; z-index: 2000; text-transform: uppercase; box-shadow: 0 0 50px rgba(0, 255, 0, 0.2); }
+#painel-secreto h2 { text-align: center; border-bottom: 2px dashed #00ff00; padding-bottom: 15px; letter-spacing: 4px; }
+.paineis-admin { display: flex; gap: 30px; height: calc(100% - 80px); margin-top: 20px; }
+.coluna-admin { flex: 1; background-color: #020202; padding: 20px; border: 1px solid #005500; overflow-y: auto; }
+ul { list-style-type: none; padding: 0; } li { padding: 10px 0; border-bottom: 1px dashed #003300; }
+.status-online { display: inline-block; width: 8px; height: 8px; background-color: #00ff00; margin-right: 10px; animation: piscar 1s infinite; box-shadow: 0 0 5px #00ff00; }
+@keyframes piscar { 0% { opacity: 1; } 50% { opacity: 0; } 100% { opacity: 1; } }
+.msg-interceptada { color: #00ff00; margin-bottom: 15px; border-bottom: 1px solid #002200; padding-bottom: 10px; }
+.remetente-espião { font-weight: bold; color: #fff; background-color: #005500; padding: 2px 5px; }
