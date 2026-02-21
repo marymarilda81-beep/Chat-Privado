@@ -20,6 +20,18 @@ const scriptPDF = document.createElement('script');
 scriptPDF.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
 document.head.appendChild(scriptPDF);
 
+// INJEÇÃO DO CSS PARA O MODO CELULAR DIRETO PELO JAVASCRIPT
+const estiloMobile = document.createElement("style");
+estiloMobile.innerHTML = `
+    .modo-celular #app-container { margin: 0; max-width: 100%; height: 100vh; border: none; border-radius: 0; }
+    .modo-celular #barra-lateral { width: 100%; min-width: 100%; display: flex; }
+    .modo-celular #chat-principal { display: none; width: 100%; }
+    .modo-celular #tela-login { margin: 20px auto; width: 90%; padding: 20px; box-sizing: border-box; }
+    .modo-celular #ui-chamada { width: 90%; left: 5%; right: auto; top: 10px; padding: 10px; }
+    .modo-celular .mensagem { max-width: 90%; }
+`;
+document.head.appendChild(estiloMobile);
+
 let meuNome = "";
 let meuNumero = "";
 let contatoAbertoAgora = null;
@@ -51,10 +63,11 @@ const inputMensagem = document.getElementById("nova-mensagem");
 // 2. SISTEMA DE SALVAR CONTA E INJEÇÕES
 // ==========================================
 window.onload = () => {
-    injetarInputLogin(); // Injeta o campo de Re-Login na tela inicial
+    perguntarDispositivo(); // A TELA DE CALIBRAÇÃO (CELULAR OU PC)
+    injetarInputLogin(); 
     injetarInterfaceGrupos(); 
     injetarBotaoAudio(); 
-    injetarInterfaceLigacao(); // Injeta o painel de Chamada (WebRTC)
+    injetarInterfaceLigacao(); 
     
     const salvouNome = localStorage.getItem("meuNome");
     const salvouNumero = localStorage.getItem("meuNumero");
@@ -70,21 +83,51 @@ window.onload = () => {
     }
 };
 
+// A NOVA TELA DE CALIBRAÇÃO DE TERMINAL
+function perguntarDispositivo() {
+    if(localStorage.getItem("modoTela")) {
+        if(localStorage.getItem("modoTela") === "celular") document.body.classList.add("modo-celular");
+        return; 
+    }
+    
+    const modalResp = document.createElement("div");
+    modalResp.id = "modal-dispositivo";
+    modalResp.style = "position:fixed; top:0; left:0; width:100%; height:100%; background:#000; z-index:99999; display:flex; align-items:center; justify-content:center; flex-direction:column; font-family:'Share Tech Mono', monospace; text-align:center;";
+    modalResp.innerHTML = `
+        <h2 style="color:#00e5ff; letter-spacing:2px;">CALIBRAÇÃO DE TERMINAL</h2>
+        <p style="color:#aaa; margin-bottom: 30px;">Identifique sua plataforma operacional para adaptar o sistema:</p>
+        <div style="display:flex; gap:20px; flex-wrap: wrap; justify-content:center;">
+            <button id="btn-tela-celular" style="background:#0a0a0a; border:2px solid #00e5ff; color:#00e5ff; padding:20px 40px; font-size:18px; cursor:pointer; font-family:inherit; font-weight:bold; transition:0.3s; width: 200px;">📱 CELULAR</button>
+            <button id="btn-tela-pc" style="background:#0a0a0a; border:2px solid #00e5ff; color:#00e5ff; padding:20px 40px; font-size:18px; cursor:pointer; font-family:inherit; font-weight:bold; transition:0.3s; width: 200px;">💻 COMPUTADOR</button>
+        </div>
+    `;
+    document.body.appendChild(modalResp);
+
+    document.getElementById("btn-tela-celular").onclick = () => {
+        document.body.classList.add("modo-celular");
+        localStorage.setItem("modoTela", "celular");
+        modalResp.remove();
+    };
+    document.getElementById("btn-tela-pc").onclick = () => {
+        localStorage.setItem("modoTela", "pc");
+        modalResp.remove();
+    };
+}
+
 document.getElementById("btn-sair").addEventListener("click", () => {
     localStorage.removeItem("meuNome");
     localStorage.removeItem("meuNumero");
+    // Opcional: Se quiser que ele pergunte celular/pc de novo ao sair, descomente a linha abaixo:
+    // localStorage.removeItem("modoTela"); 
     window.location.reload();
 });
 
-// Injeta o campo para entrar numa conta já existente
 function injetarInputLogin() {
     const inputNumAntigo = document.createElement("input");
     inputNumAntigo.type = "text";
     inputNumAntigo.id = "input-numero-login";
     inputNumAntigo.placeholder = "Já tem conta? Digite seu Nº";
     inputNumAntigo.maxLength = 6;
-    
-    // Insere logo antes do botão de entrar
     const btnEntrar = document.getElementById("btn-entrar");
     btnEntrar.parentNode.insertBefore(inputNumAntigo, btnEntrar);
 }
@@ -97,7 +140,6 @@ document.getElementById("btn-entrar").addEventListener("click", () => {
     const numeroAntigo = document.getElementById("input-numero-login").value.trim();
 
     if (meuNome !== "") {
-        // Se a pessoa digitou um número com 6 dígitos, recuperamos a conta. Senão, cria uma nova.
         if (numeroAntigo.length === 6 && !isNaN(numeroAntigo)) {
             meuNumero = numeroAntigo;
         } else {
@@ -130,7 +172,6 @@ function iniciarChat() {
     minhaPresencaRef.set({ nome: meuNome });
     minhaPresencaRef.onDisconnect().remove();
 
-    // ESCUTANDO OS GRUPOS
     db.ref("grupos").on("child_added", snapshot => {
         const grupo = snapshot.val();
         const idGrupo = snapshot.key;
@@ -140,7 +181,6 @@ function iniciarChat() {
         }
     });
 
-    // ESCUTANDO MENSAGENS E LIGAÇÕES (WebRTC)
     escutarMensagens();
     escutarChamadasSinalizacao(); 
 
@@ -201,21 +241,14 @@ function injetarInterfaceLigacao() {
         <audio id="audio-remoto" autoplay></audio>
     `;
     document.body.appendChild(callUI);
-
     document.getElementById("btn-atender-chamada").onclick = atenderChamada;
     document.getElementById("btn-desligar-chamada").onclick = desligarChamada;
 }
 
-// Escuta a "central telefônica" do Firebase para ver se alguém está ligando pra você
 function escutarChamadasSinalizacao() {
     db.ref(`chamadas/${meuNumero}`).on("value", async snapshot => {
         const dados = snapshot.val();
-        if (!dados) {
-            encerrarHardwareDeChamada(); // Se deletaram a chamada, desliga
-            return;
-        }
-
-        // Se você receber uma oferta e não for quem ligou
+        if (!dados) { encerrarHardwareDeChamada(); return; }
         if (dados.tipo === "offer" && dados.de) {
             idChamadaAtual = dados.de;
             document.getElementById("ui-chamada").style.display = "block";
@@ -226,11 +259,9 @@ function escutarChamadasSinalizacao() {
     });
 }
 
-// Você clicou no botão verde de LIGAR
 async function iniciarLigacao(numeroDestino) {
     idChamadaAtual = numeroDestino;
     isCaller = true;
-    
     document.getElementById("ui-chamada").style.display = "block";
     document.getElementById("btn-atender-chamada").style.display = "none";
     document.getElementById("status-chamada").innerText = `LIGANDO PARA ${numeroDestino}...`;
@@ -238,21 +269,14 @@ async function iniciarLigacao(numeroDestino) {
     try {
         localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
         pc = new RTCPeerConnection(rtcConfig);
-        
         localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
         pc.ontrack = e => { document.getElementById("audio-remoto").srcObject = e.streams[0]; };
-
-        pc.onicecandidate = e => {
-            if (e.candidate) db.ref(`chamadas/${numeroDestino}/candidatos`).push(e.candidate.toJSON());
-        };
+        pc.onicecandidate = e => { if (e.candidate) db.ref(`chamadas/${numeroDestino}/candidatos`).push(e.candidate.toJSON()); };
 
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
-
-        // Manda o toque pro amigo
         db.ref(`chamadas/${numeroDestino}`).set({ tipo: "offer", de: meuNumero, sdp: offer.sdp });
 
-        // Fica esperando o amigo atender e mandar a resposta
         db.ref(`chamadas/${meuNumero}/resposta`).on("value", async snapshot => {
             if (snapshot.val() && !pc.currentRemoteDescription) {
                 await pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: snapshot.val().sdp }));
@@ -260,18 +284,13 @@ async function iniciarLigacao(numeroDestino) {
             }
         });
 
-        // Puxa as rotas de rede (ICE) do amigo
         db.ref(`chamadas/${meuNumero}/candidatos`).on("child_added", snapshot => {
             if(snapshot.val()) pc.addIceCandidate(new RTCIceCandidate(snapshot.val()));
         });
 
-    } catch (err) {
-        alert("Falha no microfone! Dê permissão ao navegador.");
-        desligarChamada();
-    }
+    } catch (err) { alert("Falha no microfone! Dê permissão ao navegador."); desligarChamada(); }
 }
 
-// Você clicou no botão verde de ATENDER
 async function atenderChamada() {
     document.getElementById("btn-atender-chamada").style.display = "none";
     document.getElementById("status-chamada").innerText = "CONECTANDO...";
@@ -279,31 +298,22 @@ async function atenderChamada() {
     try {
         localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
         pc = new RTCPeerConnection(rtcConfig);
-        
         localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
         pc.ontrack = e => { document.getElementById("audio-remoto").srcObject = e.streams[0]; };
-
-        pc.onicecandidate = e => {
-            if (e.candidate) db.ref(`chamadas/${idChamadaAtual}/candidatos`).push(e.candidate.toJSON());
-        };
+        pc.onicecandidate = e => { if (e.candidate) db.ref(`chamadas/${idChamadaAtual}/candidatos`).push(e.candidate.toJSON()); };
 
         await pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: window.ofertaWebRTC }));
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
 
-        // Responde que atendeu
         db.ref(`chamadas/${idChamadaAtual}/resposta`).set({ sdp: answer.sdp });
 
-        // Puxa as rotas de rede do amigo
         db.ref(`chamadas/${meuNumero}/candidatos`).on("child_added", snapshot => {
             if(snapshot.val()) pc.addIceCandidate(new RTCIceCandidate(snapshot.val()));
         });
 
         document.getElementById("status-chamada").innerText = "CONEXÃO ESTABELECIDA 🟢";
-    } catch (err) {
-        alert("Falha no microfone!");
-        desligarChamada();
-    }
+    } catch (err) { alert("Falha no microfone!"); desligarChamada(); }
 }
 
 function desligarChamada() {
@@ -549,23 +559,32 @@ function abrirConversa(numeroDoContato) {
     
     const ehBot = Object.values(BOTS).some(bot => bot.numero === numeroDoContato);
     const ehGrupo = numeroDoContato.startsWith("G-");
+    const ehMobile = document.body.classList.contains("modo-celular");
     
     let icone = "👤"; let corTexto = "#ffffff";
     if (ehBot) { icone = "🤖"; corTexto = "#00e5ff"; }
     else if (ehGrupo) { icone = "👥"; corTexto = "#ffeb3b"; }
 
-    // Cria o botão de LIGAR apenas se NÃO FOR BOT E NÃO FOR GRUPO
     let botaoLigarHTML = "";
     if (!ehBot && !ehGrupo) {
-        botaoLigarHTML = `<button id="btn-ligar" style="background: transparent; color: #00ff00; border: 1px solid #00ff00; padding: 5px 10px; cursor: pointer; margin-right: 5px;">📞 LIGAR</button>`;
+        botaoLigarHTML = `<button id="btn-ligar" style="background: transparent; color: #00ff00; border: 1px solid #00ff00; padding: 5px 10px; cursor: pointer; margin-right: 5px; font-weight:bold;">📞 LIGAR</button>`;
+    }
+
+    // BOTÃO VOLTAR PARA O MODO CELULAR
+    let botaoVoltarHTML = "";
+    if (ehMobile) {
+        botaoVoltarHTML = `<button id="btn-voltar-mobile" style="background:transparent; color:#00e5ff; border:1px solid #00e5ff; padding:5px 10px; cursor:pointer; margin-right:15px; font-weight:bold;">⬅ VOLTAR</button>`;
+        document.getElementById("barra-lateral").style.display = "none";
+        document.getElementById("chat-principal").style.display = "flex";
     }
 
     nomeContatoAtivo.innerHTML = `
+        ${botaoVoltarHTML}
         Conversando com <span style="color: ${corTexto};">${icone} ${meusContatos[numeroDoContato].nome}</span>
-        <div style="float: right; margin-top: -5px;">
+        <div style="float: right; margin-top: ${ehMobile ? '10px' : '-5px'};">
             ${botaoLigarHTML}
             <button id="btn-limpar" style="background: transparent; color: #ffeb3b; border: 1px solid #ffeb3b; padding: 5px 10px; cursor: pointer; margin-right: 5px;">LIMPAR CHAT</button>
-            <button id="btn-excluir" style="background: transparent; color: #ff4c4c; border: 1px solid #ff4c4c; padding: 5px 10px; cursor: pointer;">${ehGrupo ? "SAIR DO GRUPO" : "EXCLUIR"}</button>
+            <button id="btn-excluir" style="background: transparent; color: #ff4c4c; border: 1px solid #ff4c4c; padding: 5px 10px; cursor: pointer;">${ehGrupo ? "SAIR" : "EXCLUIR"}</button>
         </div>
     `;
 
@@ -578,6 +597,15 @@ function abrirConversa(numeroDoContato) {
             desenharMensagemNaTela(msg);
         }
     });
+
+    if (ehMobile) {
+        document.getElementById("btn-voltar-mobile").onclick = () => {
+            document.getElementById("chat-principal").style.display = "none";
+            document.getElementById("barra-lateral").style.display = "flex";
+            contatoAbertoAgora = null;
+            atualizarBarraLateral();
+        };
+    }
 
     if (!ehBot && !ehGrupo) {
         document.getElementById("btn-ligar").onclick = () => { iniciarLigacao(numeroDoContato); };
@@ -598,6 +626,11 @@ function abrirConversa(numeroDoContato) {
             mensagensChat.innerHTML = "Selecione um contato para conversar";
             nomeContatoAtivo.innerHTML = "TERMINAL STANDBY";
             areaDigitacao.style.display = "none";
+            
+            if(ehMobile) {
+                document.getElementById("chat-principal").style.display = "none";
+                document.getElementById("barra-lateral").style.display = "flex";
+            }
             atualizarBarraLateral();
         }
     };
@@ -658,7 +691,7 @@ function injetarInterfaceGrupos() {
 
     const modalHTML = `
     <div id="modal-grupo" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.95); z-index: 3000; align-items:center; justify-content:center;">
-        <div style="background:#0a0a0a; border:2px solid #ffeb3b; padding:30px; width:400px; color:#fff; font-family:'Share Tech Mono', monospace; box-shadow: 0 0 30px rgba(255, 235, 59, 0.2);">
+        <div style="background:#0a0a0a; border:2px solid #ffeb3b; padding:30px; width:90%; max-width:400px; color:#fff; font-family:'Share Tech Mono', monospace; box-shadow: 0 0 30px rgba(255, 235, 59, 0.2); box-sizing: border-box;">
             <h2 style="color:#ffeb3b; text-align:center; border-bottom:1px dashed #ffeb3b; padding-bottom:10px; margin-top:0;">CRIAR GRUPO</h2>
             <input type="text" id="input-nome-grupo" placeholder="NOME DO GRUPO" style="width:100%; box-sizing:border-box; padding:15px; margin-top:15px; margin-bottom:15px; background:#000; color:#ffeb3b; border:1px solid #333; outline:none; font-family:inherit; text-align:center; text-transform:uppercase;">
             <h3 style="color:#aaa; font-size:14px; text-align:center;">SELECIONE OS CONTATOS:</h3>
