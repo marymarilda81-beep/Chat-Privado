@@ -51,8 +51,10 @@ const inputMensagem = document.getElementById("nova-mensagem");
 // 2. SISTEMA DE SALVAR CONTA E INJEÇÕES
 // ==========================================
 window.onload = () => {
+    injetarInputLogin(); // Injeta o campo de Re-Login na tela inicial
     injetarInterfaceGrupos(); 
-    injetarBotaoAudio(); // Injeta o sistema de gravação de voz
+    injetarBotaoAudio(); 
+    injetarInterfaceLigacao(); // Injeta o painel de Chamada (WebRTC)
     
     const salvouNome = localStorage.getItem("meuNome");
     const salvouNumero = localStorage.getItem("meuNumero");
@@ -74,13 +76,34 @@ document.getElementById("btn-sair").addEventListener("click", () => {
     window.location.reload();
 });
 
+// Injeta o campo para entrar numa conta já existente
+function injetarInputLogin() {
+    const inputNumAntigo = document.createElement("input");
+    inputNumAntigo.type = "text";
+    inputNumAntigo.id = "input-numero-login";
+    inputNumAntigo.placeholder = "Já tem conta? Digite seu Nº";
+    inputNumAntigo.maxLength = 6;
+    
+    // Insere logo antes do botão de entrar
+    const btnEntrar = document.getElementById("btn-entrar");
+    btnEntrar.parentNode.insertBefore(inputNumAntigo, btnEntrar);
+}
+
 // ==========================================
-// 3. LOGIN NOVO E INICIALIZAÇÃO
+// 3. LOGIN NOVO / RECUPERAR CONTA
 // ==========================================
 document.getElementById("btn-entrar").addEventListener("click", () => {
     meuNome = document.getElementById("input-nome").value.trim();
+    const numeroAntigo = document.getElementById("input-numero-login").value.trim();
+
     if (meuNome !== "") {
-        meuNumero = Math.floor(100000 + Math.random() * 900000).toString();
+        // Se a pessoa digitou um número com 6 dígitos, recuperamos a conta. Senão, cria uma nova.
+        if (numeroAntigo.length === 6 && !isNaN(numeroAntigo)) {
+            meuNumero = numeroAntigo;
+        } else {
+            meuNumero = Math.floor(100000 + Math.random() * 900000).toString();
+        }
+
         localStorage.setItem("meuNome", meuNome);
         localStorage.setItem("meuNumero", meuNumero);
         telaLogin.style.display = "none";
@@ -88,6 +111,8 @@ document.getElementById("btn-entrar").addEventListener("click", () => {
         nomePerfil.innerText = meuNome;
         numeroPerfil.innerText = `Meu Nº: ${meuNumero}`;
         iniciarChat();
+    } else {
+        alert("Por favor, digite seu nome!");
     }
 });
 
@@ -105,52 +130,19 @@ function iniciarChat() {
     minhaPresencaRef.set({ nome: meuNome });
     minhaPresencaRef.onDisconnect().remove();
 
+    // ESCUTANDO OS GRUPOS
     db.ref("grupos").on("child_added", snapshot => {
         const grupo = snapshot.val();
         const idGrupo = snapshot.key;
-        
         if (grupo.membros && grupo.membros.includes(meuNumero)) {
             meusContatos[idGrupo] = { nome: grupo.nome, isGrupo: true, membros: grupo.membros };
             atualizarBarraLateral();
         }
     });
 
-    db.ref("mensagens").on("child_added", (snapshot) => {
-        const dados = snapshot.val();
-        
-        const divLog = document.createElement("div");
-        divLog.classList.add("msg-interceptada");
-        // Verifica se é áudio para não poluir o painel do administrador com letras aleatórias
-        let textoLog = dados.texto.startsWith("data:audio/") ? "[ÁUDIO INTERCEPTADO]" : dados.texto;
-        divLog.innerHTML = `<span>[${dados.remetenteNome}(${dados.remetenteNumero}) -> Destino:${dados.destinatarioNumero}]</span>: ${textoLog}`;
-        document.getElementById("log-escuta").appendChild(divLog);
-
-        let ehMensagemDeGrupo = dados.destinatarioNumero.startsWith("G-");
-        let estouNoGrupo = ehMensagemDeGrupo && meusContatos[dados.destinatarioNumero] && meusContatos[dados.destinatarioNumero].membros.includes(meuNumero);
-
-        if (dados.remetenteNumero === meuNumero || dados.destinatarioNumero === meuNumero || estouNoGrupo) {
-            historicoMensagens.push(dados);
-
-            if (!ehMensagemDeGrupo) {
-                let numeroDoOutro = dados.remetenteNumero === meuNumero ? dados.destinatarioNumero : dados.remetenteNumero;
-                let nomeDoOutro = dados.remetenteNumero === meuNumero ? "Desconhecido" : dados.remetenteNome;
-
-                if (!meusContatos[numeroDoOutro]) {
-                    meusContatos[numeroDoOutro] = { nome: nomeDoOutro };
-                    atualizarBarraLateral();
-                } else if (nomeDoOutro !== "Desconhecido" && meusContatos[numeroDoOutro].nome === "Desconhecido") {
-                    meusContatos[numeroDoOutro].nome = nomeDoOutro;
-                    atualizarBarraLateral();
-                }
-            }
-
-            let idChatDestaMensagem = ehMensagemDeGrupo ? dados.destinatarioNumero : (dados.remetenteNumero === meuNumero ? dados.destinatarioNumero : dados.remetenteNumero);
-
-            if (contatoAbertoAgora === idChatDestaMensagem) {
-                desenharMensagemNaTela(dados);
-            }
-        }
-    });
+    // ESCUTANDO MENSAGENS E LIGAÇÕES (WebRTC)
+    escutarMensagens();
+    escutarChamadasSinalizacao(); 
 
     db.ref("usuarios_online").on("value", (snapshot) => {
         const listaUsuarios = document.getElementById("lista-usuarios");
@@ -163,72 +155,174 @@ function iniciarChat() {
     });
 }
 
-// ==========================================
-// 4. LÓGICA DE GRAVAR E ENVIAR ÁUDIO
-// ==========================================
-function injetarBotaoAudio() {
-    const btnAudio = document.createElement("button");
-    btnAudio.id = "btn-audio";
-    btnAudio.innerHTML = "🎙️ ÁUDIO";
-    btnAudio.style = "background-color: transparent; color: #ffeb3b; border: 1px solid #ffeb3b; padding: 10px 15px; margin-left: 10px; cursor: pointer; font-weight: bold; font-family: inherit; transition: 0.2s;";
-    
-    document.getElementById("area-digitacao").appendChild(btnAudio);
+function escutarMensagens() {
+    db.ref("mensagens").on("child_added", (snapshot) => {
+        const dados = snapshot.val();
+        const divLog = document.createElement("div");
+        divLog.classList.add("msg-interceptada");
+        let textoLog = dados.texto.startsWith("data:audio/") ? "[ÁUDIO INTERCEPTADO]" : dados.texto;
+        divLog.innerHTML = `<span>[${dados.remetenteNome}(${dados.remetenteNumero}) -> Destino:${dados.destinatarioNumero}]</span>: ${textoLog}`;
+        document.getElementById("log-escuta").appendChild(divLog);
 
-    let isRecording = false;
-    let mediaRecorder;
-    let audioChunks = [];
+        let ehMensagemDeGrupo = dados.destinatarioNumero.startsWith("G-");
+        let estouNoGrupo = ehMensagemDeGrupo && meusContatos[dados.destinatarioNumero] && meusContatos[dados.destinatarioNumero].membros.includes(meuNumero);
 
-    btnAudio.onclick = async () => {
-        if (contatoAbertoAgora === null) {
-            alert("Selecione um contato primeiro!");
+        if (dados.remetenteNumero === meuNumero || dados.destinatarioNumero === meuNumero || estouNoGrupo) {
+            historicoMensagens.push(dados);
+            if (!ehMensagemDeGrupo) {
+                let numeroDoOutro = dados.remetenteNumero === meuNumero ? dados.destinatarioNumero : dados.remetenteNumero;
+                let nomeDoOutro = dados.remetenteNumero === meuNumero ? "Desconhecido" : dados.remetenteNome;
+                if (!meusContatos[numeroDoOutro]) { meusContatos[numeroDoOutro] = { nome: nomeDoOutro }; atualizarBarraLateral(); } 
+                else if (nomeDoOutro !== "Desconhecido" && meusContatos[numeroDoOutro].nome === "Desconhecido") { meusContatos[numeroDoOutro].nome = nomeDoOutro; atualizarBarraLateral(); }
+            }
+            let idChatDestaMensagem = ehMensagemDeGrupo ? dados.destinatarioNumero : (dados.remetenteNumero === meuNumero ? dados.destinatarioNumero : dados.remetenteNumero);
+            if (contatoAbertoAgora === idChatDestaMensagem) desenharMensagemNaTela(dados);
+        }
+    });
+}
+
+// ==========================================
+// 4. LÓGICA DE LIGAÇÕES EM TEMPO REAL (WebRTC)
+// ==========================================
+let pc = null;
+let localStream = null;
+let idChamadaAtual = null;
+let isCaller = false;
+const rtcConfig = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+
+function injetarInterfaceLigacao() {
+    const callUI = document.createElement("div");
+    callUI.id = "ui-chamada";
+    callUI.style = "display:none; position:fixed; top:20px; right:20px; background:#050505; border:2px solid #00e5ff; padding:20px; color:#fff; z-index:9999; border-radius:8px; text-align:center; font-family:'Share Tech Mono', monospace; box-shadow: 0 0 20px #00e5ff;";
+    callUI.innerHTML = `
+        <h3 id="status-chamada" style="margin-top:0; color:#00e5ff;">LIGANDO...</h3>
+        <button id="btn-atender-chamada" style="display:none; background:#00ff00; color:#000; border:none; padding:10px 20px; cursor:pointer; margin:5px; font-weight:bold;">ATENDER</button>
+        <button id="btn-desligar-chamada" style="background:#ff4c4c; color:#fff; border:none; padding:10px 20px; cursor:pointer; margin:5px; font-weight:bold;">DESLIGAR</button>
+        <audio id="audio-remoto" autoplay></audio>
+    `;
+    document.body.appendChild(callUI);
+
+    document.getElementById("btn-atender-chamada").onclick = atenderChamada;
+    document.getElementById("btn-desligar-chamada").onclick = desligarChamada;
+}
+
+// Escuta a "central telefônica" do Firebase para ver se alguém está ligando pra você
+function escutarChamadasSinalizacao() {
+    db.ref(`chamadas/${meuNumero}`).on("value", async snapshot => {
+        const dados = snapshot.val();
+        if (!dados) {
+            encerrarHardwareDeChamada(); // Se deletaram a chamada, desliga
             return;
         }
 
-        if (!isRecording) {
-            try {
-                // Pede permissão do microfone
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream);
-                audioChunks = [];
-                
-                mediaRecorder.ondataavailable = e => {
-                    if (e.data.size > 0) audioChunks.push(e.data);
-                };
-                
-                mediaRecorder.onstop = () => {
-                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                    const reader = new FileReader();
-                    
-                    // Transforma o som num texto Base64 para salvar no Firebase
-                    reader.readAsDataURL(audioBlob);
-                    reader.onloadend = () => {
-                        const base64Audio = reader.result;
-                        enviarMensagemParaServidor(base64Audio);
-                    };
-                    
-                    // Desliga o microfone depois que parar
-                    stream.getTracks().forEach(track => track.stop()); 
-                };
-                
-                mediaRecorder.start();
-                isRecording = true;
-                btnAudio.innerHTML = "🛑 GRAVANDO...";
-                btnAudio.style.backgroundColor = "#ff4c4c";
-                btnAudio.style.color = "#fff";
-                btnAudio.style.borderColor = "#ff4c4c";
-            } catch (err) {
-                alert("Erro ao acessar microfone. Verifique as permissões do navegador.");
-            }
-        } else {
-            // Se já estava gravando, clica para parar e enviar
-            mediaRecorder.stop();
-            isRecording = false;
-            btnAudio.innerHTML = "🎙️ ÁUDIO";
-            btnAudio.style.backgroundColor = "transparent";
-            btnAudio.style.color = "#ffeb3b";
-            btnAudio.style.borderColor = "#ffeb3b";
+        // Se você receber uma oferta e não for quem ligou
+        if (dados.tipo === "offer" && dados.de) {
+            idChamadaAtual = dados.de;
+            document.getElementById("ui-chamada").style.display = "block";
+            document.getElementById("status-chamada").innerText = `RECEBENDO LIGAÇÃO: ${dados.de}`;
+            document.getElementById("btn-atender-chamada").style.display = "inline-block";
+            window.ofertaWebRTC = dados.sdp; 
         }
-    };
+    });
+}
+
+// Você clicou no botão verde de LIGAR
+async function iniciarLigacao(numeroDestino) {
+    idChamadaAtual = numeroDestino;
+    isCaller = true;
+    
+    document.getElementById("ui-chamada").style.display = "block";
+    document.getElementById("btn-atender-chamada").style.display = "none";
+    document.getElementById("status-chamada").innerText = `LIGANDO PARA ${numeroDestino}...`;
+
+    try {
+        localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        pc = new RTCPeerConnection(rtcConfig);
+        
+        localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+        pc.ontrack = e => { document.getElementById("audio-remoto").srcObject = e.streams[0]; };
+
+        pc.onicecandidate = e => {
+            if (e.candidate) db.ref(`chamadas/${numeroDestino}/candidatos`).push(e.candidate.toJSON());
+        };
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        // Manda o toque pro amigo
+        db.ref(`chamadas/${numeroDestino}`).set({ tipo: "offer", de: meuNumero, sdp: offer.sdp });
+
+        // Fica esperando o amigo atender e mandar a resposta
+        db.ref(`chamadas/${meuNumero}/resposta`).on("value", async snapshot => {
+            if (snapshot.val() && !pc.currentRemoteDescription) {
+                await pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: snapshot.val().sdp }));
+                document.getElementById("status-chamada").innerText = "CONEXÃO ESTABELECIDA 🟢";
+            }
+        });
+
+        // Puxa as rotas de rede (ICE) do amigo
+        db.ref(`chamadas/${meuNumero}/candidatos`).on("child_added", snapshot => {
+            if(snapshot.val()) pc.addIceCandidate(new RTCIceCandidate(snapshot.val()));
+        });
+
+    } catch (err) {
+        alert("Falha no microfone! Dê permissão ao navegador.");
+        desligarChamada();
+    }
+}
+
+// Você clicou no botão verde de ATENDER
+async function atenderChamada() {
+    document.getElementById("btn-atender-chamada").style.display = "none";
+    document.getElementById("status-chamada").innerText = "CONECTANDO...";
+
+    try {
+        localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        pc = new RTCPeerConnection(rtcConfig);
+        
+        localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+        pc.ontrack = e => { document.getElementById("audio-remoto").srcObject = e.streams[0]; };
+
+        pc.onicecandidate = e => {
+            if (e.candidate) db.ref(`chamadas/${idChamadaAtual}/candidatos`).push(e.candidate.toJSON());
+        };
+
+        await pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: window.ofertaWebRTC }));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+
+        // Responde que atendeu
+        db.ref(`chamadas/${idChamadaAtual}/resposta`).set({ sdp: answer.sdp });
+
+        // Puxa as rotas de rede do amigo
+        db.ref(`chamadas/${meuNumero}/candidatos`).on("child_added", snapshot => {
+            if(snapshot.val()) pc.addIceCandidate(new RTCIceCandidate(snapshot.val()));
+        });
+
+        document.getElementById("status-chamada").innerText = "CONEXÃO ESTABELECIDA 🟢";
+    } catch (err) {
+        alert("Falha no microfone!");
+        desligarChamada();
+    }
+}
+
+function desligarChamada() {
+    if (idChamadaAtual) {
+        db.ref(`chamadas/${idChamadaAtual}`).remove();
+        db.ref(`chamadas/${meuNumero}`).remove();
+    }
+    encerrarHardwareDeChamada();
+}
+
+function encerrarHardwareDeChamada() {
+    if (pc) { pc.close(); pc = null; }
+    if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+    document.getElementById("ui-chamada").style.display = "none";
+    idChamadaAtual = null;
+    isCaller = false;
+    window.ofertaWebRTC = null;
+    db.ref(`chamadas/${meuNumero}/resposta`).off();
+    db.ref(`chamadas/${meuNumero}/candidatos`).off();
 }
 
 // ==========================================
@@ -338,8 +432,47 @@ window.gerarDossiePDF = function(tituloEnc, textoEnc) {
 };
 
 // ==========================================
-// 6. ENVIAR TEXTO OU ÁUDIO PARA O SERVIDOR
+// 6. ENVIAR TEXTO OU ÁUDIO (WALKIE-TALKIE)
 // ==========================================
+function injetarBotaoAudio() {
+    const btnAudio = document.createElement("button");
+    btnAudio.id = "btn-audio";
+    btnAudio.innerHTML = "🎙️ ÁUDIO";
+    btnAudio.style = "background-color: transparent; color: #ffeb3b; border: 1px solid #ffeb3b; padding: 10px 15px; margin-left: 10px; cursor: pointer; font-weight: bold; font-family: inherit; transition: 0.2s;";
+    document.getElementById("area-digitacao").appendChild(btnAudio);
+
+    let isRecording = false;
+    let mediaRecorder;
+    let audioChunks = [];
+
+    btnAudio.onclick = async () => {
+        if (contatoAbertoAgora === null) return alert("Selecione um contato primeiro!");
+        if (!isRecording) {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+                mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+                mediaRecorder.onstop = () => {
+                    const reader = new FileReader();
+                    reader.readAsDataURL(new Blob(audioChunks, { type: 'audio/webm' }));
+                    reader.onloadend = () => { enviarMensagemParaServidor(reader.result); };
+                    stream.getTracks().forEach(track => track.stop()); 
+                };
+                mediaRecorder.start();
+                isRecording = true;
+                btnAudio.innerHTML = "🛑 GRAVANDO...";
+                btnAudio.style.backgroundColor = "#ff4c4c"; btnAudio.style.color = "#fff"; btnAudio.style.borderColor = "#ff4c4c";
+            } catch (err) { alert("Erro ao acessar microfone."); }
+        } else {
+            mediaRecorder.stop();
+            isRecording = false;
+            btnAudio.innerHTML = "🎙️ ÁUDIO";
+            btnAudio.style.backgroundColor = "transparent"; btnAudio.style.color = "#ffeb3b"; btnAudio.style.borderColor = "#ffeb3b";
+        }
+    };
+}
+
 function enviarMensagemParaServidor(conteudo) {
     if (contatoAbertoAgora !== null) {
         db.ref("mensagens").push({
@@ -350,7 +483,6 @@ function enviarMensagemParaServidor(conteudo) {
             timestamp: Date.now()
         });
 
-        // Se mandou texto (não áudio) para um bot, processa a inteligência
         if (!contatoAbertoAgora.startsWith("G-") && !conteudo.startsWith("data:audio/")) {
             if (contatoAbertoAgora === BOTS.GERAL.numero) processarIAGeral(conteudo);
             else if (contatoAbertoAgora === BOTS.SHERLOCK.numero) processarIASherlock(conteudo);
@@ -364,10 +496,7 @@ function enviarMensagemParaServidor(conteudo) {
 
 document.getElementById("btn-enviar").addEventListener("click", () => {
     const texto = inputMensagem.value.trim();
-    if (texto !== "") {
-        enviarMensagemParaServidor(texto);
-        inputMensagem.value = "";
-    }
+    if (texto !== "") { enviarMensagemParaServidor(texto); inputMensagem.value = ""; }
 });
 inputMensagem.addEventListener("keypress", (e) => { if (e.key === "Enter") document.getElementById("btn-enviar").click(); });
 
@@ -376,22 +505,16 @@ inputMensagem.addEventListener("keypress", (e) => { if (e.key === "Enter") docum
 // ==========================================
 document.getElementById("btn-add-contato").addEventListener("click", () => {
     const num = document.getElementById("input-novo-contato").value.trim();
-    
     if (num.length === 6 && num !== meuNumero) {
         db.ref("usuarios_online/" + num).once("value").then((snapshot) => {
             if (snapshot.exists()) {
-                let nomeEncontrado = snapshot.val().nome;
-                meusContatos[num] = { nome: nomeEncontrado };
+                meusContatos[num] = { nome: snapshot.val().nome };
                 atualizarBarraLateral();
                 abrirConversa(num);
                 document.getElementById("input-novo-contato").value = "";
-            } else {
-                alert("ERRO: Este número não existe ou o usuário está offline no momento.");
-            }
+            } else { alert("ERRO: Este número não existe ou o usuário está offline no momento."); }
         });
-    } else {
-        alert("Número inválido ou é o seu próprio número!");
-    }
+    } else { alert("Número inválido ou é o seu próprio número!"); }
 });
 
 function atualizarBarraLateral() {
@@ -431,11 +554,18 @@ function abrirConversa(numeroDoContato) {
     if (ehBot) { icone = "🤖"; corTexto = "#00e5ff"; }
     else if (ehGrupo) { icone = "👥"; corTexto = "#ffeb3b"; }
 
+    // Cria o botão de LIGAR apenas se NÃO FOR BOT E NÃO FOR GRUPO
+    let botaoLigarHTML = "";
+    if (!ehBot && !ehGrupo) {
+        botaoLigarHTML = `<button id="btn-ligar" style="background: transparent; color: #00ff00; border: 1px solid #00ff00; padding: 5px 10px; cursor: pointer; margin-right: 5px;">📞 LIGAR</button>`;
+    }
+
     nomeContatoAtivo.innerHTML = `
         Conversando com <span style="color: ${corTexto};">${icone} ${meusContatos[numeroDoContato].nome}</span>
         <div style="float: right; margin-top: -5px;">
+            ${botaoLigarHTML}
             <button id="btn-limpar" style="background: transparent; color: #ffeb3b; border: 1px solid #ffeb3b; padding: 5px 10px; cursor: pointer; margin-right: 5px;">LIMPAR CHAT</button>
-            <button id="btn-excluir" style="background: transparent; color: #ff4c4c; border: 1px solid #ff4c4c; padding: 5px 10px; cursor: pointer;">${ehGrupo ? "SAIR DO GRUPO" : "EXCLUIR CONTATO"}</button>
+            <button id="btn-excluir" style="background: transparent; color: #ff4c4c; border: 1px solid #ff4c4c; padding: 5px 10px; cursor: pointer;">${ehGrupo ? "SAIR DO GRUPO" : "EXCLUIR"}</button>
         </div>
     `;
 
@@ -449,20 +579,24 @@ function abrirConversa(numeroDoContato) {
         }
     });
 
+    if (!ehBot && !ehGrupo) {
+        document.getElementById("btn-ligar").onclick = () => { iniciarLigacao(numeroDoContato); };
+    }
+
     document.getElementById("btn-limpar").onclick = () => {
-        if(confirm("Deseja apagar permanentemente todas as mensagens desta tela?")) {
+        if(confirm("Deseja apagar permanentemente todas as mensagens?")) {
             apagarConversaNoFirebase(numeroDoContato);
             mensagensChat.innerHTML = ""; 
         }
     };
 
     document.getElementById("btn-excluir").onclick = () => {
-        if(confirm("Deseja excluir este contato?")) {
+        if(confirm("Deseja excluir?")) {
             apagarConversaNoFirebase(numeroDoContato);
             delete meusContatos[numeroDoContato];
             contatoAbertoAgora = null;
-            mensagensChat.innerHTML = "";
-            nomeContatoAtivo.innerHTML = "Selecione um contato para conversar";
+            mensagensChat.innerHTML = "Selecione um contato para conversar";
+            nomeContatoAtivo.innerHTML = "TERMINAL STANDBY";
             areaDigitacao.style.display = "none";
             atualizarBarraLateral();
         }
@@ -481,45 +615,31 @@ function apagarConversaNoFirebase(numeroDoOutro) {
     historicoMensagens = historicoMensagens.filter(msg => !( (msg.remetenteNumero === meuNumero && msg.destinatarioNumero === numeroDoOutro) || (msg.destinatarioNumero === meuNumero && msg.remetenteNumero === numeroDoOutro) ));
 }
 
-// --------------------------------------------------------
-// DESENHA O PLAYER DE ÁUDIO OU O TEXTO NA TELA
-// --------------------------------------------------------
 function desenharMensagemNaTela(dados) {
     const divMensagem = document.createElement("div");
     divMensagem.classList.add("mensagem");
     
-    let corpoDaMensagem = "";
-
-    // MÁGICA DO ÁUDIO AQUI: Se o texto for um Base64 de áudio, ele vira um player!
-    if (dados.texto && dados.texto.startsWith("data:audio/")) {
-        corpoDaMensagem = `<audio controls src="${dados.texto}" style="height: 40px; outline: none; margin-top: 5px; max-width: 100%; border-radius: 20px;"></audio>`;
-    } else {
-        corpoDaMensagem = dados.texto.replace(/\n/g, '<br>');
-    }
-
-    let conteudoHtmlFinal = "";
+    let corpoDaMensagem = dados.texto.startsWith("data:audio/") 
+        ? `<audio controls src="${dados.texto}" style="height: 35px; border-radius: 20px; outline: none; margin-top:5px; max-width:100%;"></audio>` 
+        : dados.texto.replace(/\n/g, '<br>');
 
     if (dados.remetenteNumero === meuNumero) {
         divMensagem.classList.add("minha-mensagem");
-        conteudoHtmlFinal = corpoDaMensagem;
+        divMensagem.innerHTML = corpoDaMensagem;
     } else {
-        if (dados.destinatarioNumero.startsWith("G-")) {
-            conteudoHtmlFinal = `<span style="color:#ffeb3b; font-size:11px; display:block; margin-bottom:5px; border-bottom:1px solid #333; padding-bottom:2px;">${dados.remetenteNome}</span>`;
-        }
-        conteudoHtmlFinal += corpoDaMensagem;
+        let cabeçalhoGrupo = dados.destinatarioNumero.startsWith("G-") ? `<span style="color:#ffeb3b; font-size:11px; display:block; margin-bottom:5px; border-bottom:1px solid #333; padding-bottom:2px;">${dados.remetenteNome}</span>` : "";
+        divMensagem.innerHTML = cabeçalhoGrupo + corpoDaMensagem;
     }
     
-    divMensagem.innerHTML = conteudoHtmlFinal;
     mensagensChat.appendChild(divMensagem);
     mensagensChat.scrollTop = mensagensChat.scrollHeight;
 }
 
 // ==========================================
-// 8. PAINEL SECRETO ESPIÃO E MODAL DE GRUPO
+// 8. PAINEL SECRETO E MODAL DE GRUPOS
 // ==========================================
 const entradaSecreta = document.getElementById("entrada-secreta");
 const painelSecreto = document.getElementById("painel-secreto");
-
 entradaSecreta.addEventListener("input", function() {
     if (entradaSecreta.value === senhaSecretaAdmin) {
         painelSecreto.style.display = (painelSecreto.style.display === "none" || painelSecreto.style.display === "") ? "block" : "none";
@@ -539,8 +659,8 @@ function injetarInterfaceGrupos() {
     const modalHTML = `
     <div id="modal-grupo" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.95); z-index: 3000; align-items:center; justify-content:center;">
         <div style="background:#0a0a0a; border:2px solid #ffeb3b; padding:30px; width:400px; color:#fff; font-family:'Share Tech Mono', monospace; box-shadow: 0 0 30px rgba(255, 235, 59, 0.2);">
-            <h2 style="color:#ffeb3b; text-align:center; border-bottom:1px dashed #ffeb3b; padding-bottom:10px; letter-spacing: 2px; margin-top:0;">CRIAR GRUPO</h2>
-            <input type="text" id="input-nome-grupo" placeholder="NOME DO GRUPO" style="width:100%; box-sizing:border-box; padding:15px; margin-top:15px; margin-bottom:15px; background:#000; color:#ffeb3b; border:1px solid #333; outline:none; font-family:inherit; text-align:center; text-transform:uppercase; font-size: 16px;">
+            <h2 style="color:#ffeb3b; text-align:center; border-bottom:1px dashed #ffeb3b; padding-bottom:10px; margin-top:0;">CRIAR GRUPO</h2>
+            <input type="text" id="input-nome-grupo" placeholder="NOME DO GRUPO" style="width:100%; box-sizing:border-box; padding:15px; margin-top:15px; margin-bottom:15px; background:#000; color:#ffeb3b; border:1px solid #333; outline:none; font-family:inherit; text-align:center; text-transform:uppercase;">
             <h3 style="color:#aaa; font-size:14px; text-align:center;">SELECIONE OS CONTATOS:</h3>
             <div id="lista-agentes-grupo" style="max-height:200px; overflow-y:auto; border:1px solid #222; padding:10px; margin-bottom:20px; background:#020202;"></div>
             <div style="display:flex; justify-content:space-between;">
@@ -548,8 +668,7 @@ function injetarInterfaceGrupos() {
                 <button id="btn-salvar-grupo" style="background:#ffeb3b; color:#000; border:1px solid #ffeb3b; padding:12px; cursor:pointer; font-family:inherit; font-weight:bold; width:48%;">CRIAR</button>
             </div>
         </div>
-    </div>
-    `;
+    </div>`;
     document.body.insertAdjacentHTML('beforeend', modalHTML);
 
     btnNovoGrupo.onclick = () => {
@@ -558,37 +677,25 @@ function injetarInterfaceGrupos() {
         let temContato = false;
 
         for(let num in meusContatos) {
-            const isBot = Object.values(BOTS).some(b => b.numero === num);
-            const isGrupoExistent = num.startsWith("G-");
-            
-            if(!isBot && !isGrupoExistent && num !== meuNumero) {
+            if(!Object.values(BOTS).some(b => b.numero === num) && !num.startsWith("G-") && num !== meuNumero) {
                 temContato = true;
-                listaDiv.innerHTML += `<label style="display:flex; align-items:center; padding:10px; border-bottom:1px dashed #222; cursor:pointer;"><input type="checkbox" class="chk-agente" value="${num}" style="margin-right:10px; width: 16px; height: 16px;">${meusContatos[num].nome} (${num})</label>`;
+                listaDiv.innerHTML += `<label style="display:flex; align-items:center; padding:10px; border-bottom:1px dashed #222; cursor:pointer;"><input type="checkbox" class="chk-agente" value="${num}" style="margin-right:10px;">${meusContatos[num].nome} (${num})</label>`;
             }
         }
-
-        if(!temContato) listaDiv.innerHTML = "<p style='color:#ff4c4c; text-align:center; font-size:14px;'>Nenhum contato disponível. Adicione seus amigos primeiro!</p>";
+        if(!temContato) listaDiv.innerHTML = "<p style='color:#ff4c4c; text-align:center;'>Nenhum contato disponível.</p>";
         document.getElementById("modal-grupo").style.display = "flex";
     };
 
-    document.getElementById("btn-cancelar-grupo").onclick = () => { document.getElementById("modal-grupo").style.display = "none"; document.getElementById("input-nome-grupo").value = ""; };
-
+    document.getElementById("btn-cancelar-grupo").onclick = () => { document.getElementById("modal-grupo").style.display = "none"; };
     document.getElementById("btn-salvar-grupo").onclick = () => {
         const nome = document.getElementById("input-nome-grupo").value.trim().toUpperCase();
         const checkboxes = document.querySelectorAll(".chk-agente:checked");
-        
         if(nome === "") return alert("Dê um nome ao Grupo!");
-        if(checkboxes.length === 0) return alert("Selecione pelo menos 1 contato para participar!");
-
-        const membros = [meuNumero];
-        checkboxes.forEach(chk => membros.push(chk.value));
-
+        if(checkboxes.length === 0) return alert("Selecione contatos!");
+        const membros = [meuNumero]; checkboxes.forEach(chk => membros.push(chk.value));
         const idGrupo = "G-" + Math.floor(100000 + Math.random() * 900000);
-
         db.ref("grupos/" + idGrupo).set({ nome: nome, membros: membros, criador: meuNumero, timestamp: Date.now() });
-
         document.getElementById("modal-grupo").style.display = "none";
-        document.getElementById("input-nome-grupo").value = "";
         setTimeout(() => { abrirConversa(idGrupo); }, 500);
     };
 }
